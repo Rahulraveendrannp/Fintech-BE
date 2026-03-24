@@ -1,33 +1,46 @@
 import { Injectable, Logger } from '@nestjs/common';
-import * as nodemailer from 'nodemailer';
 
 @Injectable()
 export class EmailService {
-  private transporter: nodemailer.Transporter;
   private readonly logger = new Logger(EmailService.name);
-
-  constructor() {
-    this.transporter = nodemailer.createTransport({
-      service: 'gmail',
-      auth: {
-        user: process.env.GMAIL_USER,
-        pass: process.env.GMAIL_APP_PASSWORD,
-      },
-    });
-  }
 
   async sendOtpEmail(email: string, otp: string, name?: string): Promise<void> {
     try {
-      await this.transporter.sendMail({
-        from: `"MyFinance" <${process.env.GMAIL_USER}>`,
-        to: email,
-        subject: `${otp} — Your MyFinance verification code`,
-        html: this.buildTemplate(otp, name),
+      const apiKey = process.env.BREVO_API_KEY;
+      const senderEmail = process.env.BREVO_SENDER_EMAIL;
+      const senderName = process.env.BREVO_SENDER_NAME || 'MyFinance';
+
+      if (!apiKey || !senderEmail) {
+        throw new Error('Missing Brevo configuration');
+      }
+
+      const response = await fetch('https://api.brevo.com/v3/smtp/email', {
+        method: 'POST',
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+          'api-key': apiKey,
+        },
+        body: JSON.stringify({
+          sender: {
+            email: senderEmail,
+            name: senderName,
+          },
+          to: [{ email }],
+          subject: `${otp} - Your MyFinance verification code`,
+          htmlContent: this.buildTemplate(otp, name),
+        }),
       });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(errorText || `Brevo request failed with ${response.status}`);
+      }
+
       this.logger.log(`OTP sent to ${email}`);
     } catch (err) {
       this.logger.error(`Failed to send OTP to ${email}: ${(err as Error).message}`);
-      throw new Error('Failed to send email. Please check your Gmail configuration.');
+      throw new Error('Failed to send email. Please check your Brevo configuration.');
     }
   }
 
